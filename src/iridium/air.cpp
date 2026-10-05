@@ -390,11 +390,18 @@ static Iridium::SPIRV::ResultID llvmValueToResultID(Iridium::SPIRV::Builder& bui
 					}
 #endif
 
-					return builder.encodeBitcast(llvmTypeToSPIRVType(builder, type), targetID);
-				} break;
+return builder.encodeBitcast(llvmTypeToSPIRVType(builder, type), targetID);
+			} break;
+
+			case LLVMIntToPtr: {
+				auto target = DynamicLLVM::LLVMGetOperand(llvmValue, 0);
+				auto targetID = llvmValueToResultID(builder, target);
+				return builder.encodeConvertUToPtr(llvmTypeToSPIRVType(builder, type), targetID);
+			} break;
+
 
 				default:
-					throw ImpossibleResultID("unsupported LLVM value kind " + std::to_string((int)kind));
+					throw ImpossibleResultID("unsupported LLVM constant expression opcode " + std::to_string((int)DynamicLLVM::LLVMGetConstOpcode(llvmValue)));
 			}
 		} break;
 
