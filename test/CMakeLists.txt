@@ -11,6 +11,7 @@ add_subdirectory(basic-compute-mslc)
 add_subdirectory(store-reference)
 add_subdirectory(const-bitcast-operand)
 add_subdirectory(texture-readback)
+add_subdirectory(multisample-resolve)
 
 # cube, cubemap, lighting and texturing include <glm/gtx/transform.hpp> and
 # <glm/gtx/type_aligned.hpp>, and GLM 1.0.3 hard-errors in every gtx header
