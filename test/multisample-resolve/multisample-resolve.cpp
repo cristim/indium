@@ -3,6 +3,8 @@
 #include <cstdio>
 #include <thread>
 #include <vector>
+#include "vertex-shader.h"
+#include "fragment-shader.h"
 
 int main() {
     Indium::init(nullptr, 0, false);
@@ -26,17 +28,35 @@ int main() {
                 descriptor.sampleCount = samples;
                 color = device->newTexture(descriptor);
             }
-            for (unsigned channel : {0u, 2u}) {
+            Indium::LibraryReflection vertexReflection, fragmentReflection;
+            vertexReflection.functions["main"].functionType = Indium::FunctionType::Vertex;
+            fragmentReflection.functions["main"].functionType = Indium::FunctionType::Fragment;
+            auto vertex = device->newLibrary(vertex_shader, vertex_shader_len, vertexReflection);
+            auto fragment = device->newLibrary(fragment_shader, fragment_shader_len, fragmentReflection);
+            Indium::RenderPipelineDescriptor pipelineDescriptor {};
+            pipelineDescriptor.vertexFunction = vertex->newFunction("main");
+            pipelineDescriptor.fragmentFunction = fragment->newFunction("main");
+            pipelineDescriptor.rasterSampleCount = samples;
+            Indium::RenderPipelineColorAttachmentDescriptor pipelineColor {};
+            pipelineColor.pixelFormat = descriptor.pixelFormat;
+            pipelineDescriptor.colorAttachments.push_back(pipelineColor);
+            auto pipeline = device->newRenderPipelineState(pipelineDescriptor);
+            for (unsigned operation : {0u, 1u, 2u}) {
+                unsigned channel = operation == 0 ? 0 : 2;
                 Indium::RenderPassDescriptor pass{};
                 Indium::RenderPassColorAttachmentDescriptor attachment{};
                 attachment.texture = color;
                 attachment.loadAction = Indium::LoadAction::Clear;
                 attachment.storeAction = samples > 1 ? Indium::StoreAction::MultisampleResolve : Indium::StoreAction::Store;
                 if (samples > 1) attachment.resolveTexture = result;
-                attachment.clearColor = Indium::ClearColor(channel == 0,0,channel == 2,1);
+                attachment.clearColor = Indium::ClearColor(operation == 2 || channel == 0,0,operation != 2 && channel == 2,1);
                 pass.colorAttachments.push_back(attachment);
                 auto command = device->newCommandQueue()->commandBuffer();
                 auto encoder = command->renderCommandEncoder(pass);
+                if (operation == 2) {
+                    encoder->setRenderPipelineState(pipeline);
+                    encoder->drawPrimitives(Indium::PrimitiveType::Triangle,0,3);
+                }
                 encoder->endEncoding(); command->commit(); command->waitUntilCompleted();
                 std::vector<unsigned char> pixels(poison.size(),0xa5);
                 result->getBytes(Indium::Region::make2D(0,0,16,12),0,pixels.data(),16*4);
@@ -45,7 +65,7 @@ int main() {
                     unsigned char expected = i%4 == channel || i%4 == 3 ? 255 : 0;
                     if (pixels[i] != expected) ++mismatches;
                 }
-                std::printf("%s samples=%zu channel=%u mismatched_bytes=%u\n", mismatches ? "FAIL" : "PASS",samples,channel,mismatches);
+                std::printf("%s samples=%zu operation=%u mismatched_bytes=%u\n", mismatches ? "FAIL" : "PASS",samples,operation,mismatches);
                 if (mismatches) ++failures;
             }
         }
