@@ -32,6 +32,11 @@ Indium::PrivateRenderCommandEncoder::PrivateRenderCommandEncoder(std::shared_ptr
 		throw std::runtime_error("Render pass requires a color attachment");
 	}
 	auto firstTexture = descriptor.colorAttachments.front().texture;
+	if (getenv("INDIUM_DIAG_DRAWS")) {
+		fprintf(stderr, "DIAGPASS color_load=%d clear=(%.2f,%.2f,%.2f,%.2f) depth=%d", (int)descriptor.colorAttachments.front().loadAction, descriptor.colorAttachments.front().clearColor.red, descriptor.colorAttachments.front().clearColor.green, descriptor.colorAttachments.front().clearColor.blue, descriptor.colorAttachments.front().clearColor.alpha, descriptor.depthAttachment ? 1 : 0);
+		if (descriptor.depthAttachment) { fprintf(stderr, " depth_load=%d clearDepth=%.2f depth_fmt=%d", (int)descriptor.depthAttachment->loadAction, descriptor.depthAttachment->clearDepth, (int)descriptor.depthAttachment->texture->pixelFormat()); }
+		fprintf(stderr, "\n");
+	}
 	auto resolvesColor = [](const auto& color) {
 		return color.storeAction == StoreAction::MultisampleResolve || color.storeAction == StoreAction::StoreAndMultisampleResolve;
 	};
@@ -587,6 +592,7 @@ void Indium::PrivateRenderCommandEncoder::setDepthStencilState(std::shared_ptr<D
 	auto privateState = std::dynamic_pointer_cast<PrivateDepthStencilState>(state);
 	auto& desc = privateState->descriptor();
 
+	if (getenv("INDIUM_DIAG_DRAWS")) { fprintf(stderr, "DIAGDEPTH compare=%d write=%d\n", (int)desc.depthCompareFunction, (int)desc.depthWriteEnabled); }
 	DynamicVK::vkCmdSetDepthWriteEnable(buf->commandBuffer(), desc.depthWriteEnabled ? VK_TRUE : VK_FALSE);
 	DynamicVK::vkCmdSetDepthCompareOp(buf->commandBuffer(), compareFunctionToVkCompareOp(desc.depthCompareFunction));
 	DynamicVK::vkCmdSetDepthTestEnable(buf->commandBuffer(), VK_TRUE);
