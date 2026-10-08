@@ -1,6 +1,7 @@
 #include <iridium/spirv.hpp>
 #include <optional>
 #include <functional>
+#include <stdexcept>
 
 bool Iridium::SPIRV::Decoration::operator==(const Decoration& other) const {
 	if (type != other.type || arguments.size() != other.arguments.size()) {
@@ -227,6 +228,7 @@ void Iridium::SPIRV::Builder::addEntryPoint(const EntryPoint& entryPoint) {
 Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::addGlobalVariable(ResultID typeID, StorageClass storageClass) {
 	auto resultID = reserveResultID();
 	_globalVariables[resultID] = GlobalVariable { storageClass, typeID };
+	setResultType(resultID, typeID);
 	return resultID;
 };
 
@@ -296,6 +298,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::declareConstantScalarCommon(ui
 	}
 
 	auto id = reserveResultID();
+	setResultType(id, typeID);
 
 	if (specializationID == SpecializationIDInvalid) {
 		_constantScalars.emplace(key, id);
@@ -392,6 +395,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::declareConstantComposite(Resul
 		_constants.writeIntegerLE<uint32_t>(elm);
 	}
 	endInstruction(std::move(tmp));
+	setResultType(result, typeID);
 	return result;
 };
 
@@ -409,6 +413,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::declareUndefinedValue(ResultID
 	_constants.writeIntegerLE<uint32_t>(result);
 	endInstruction(std::move(tmp));
 
+	setResultType(result, typeID);
 	return result;
 };
 
@@ -426,6 +431,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::declareNullValue(ResultID type
 	_constants.writeIntegerLE<uint32_t>(result);
 	endInstruction(std::move(tmp));
 
+	setResultType(result, typeID);
 	return result;
 };
 
@@ -453,6 +459,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeUConvert(ResultID typeID
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(result);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(operand);
 	endInstruction(std::move(tmp));
+	setResultType(result, typeID);
 	return result;
 };
 
@@ -466,10 +473,18 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeAccessChain(ResultID res
 		_currentFunctionWriter->writeIntegerLE<uint32_t>(index);
 	}
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
 Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeLoad(ResultID resultTypeID, ResultID pointer, uint8_t alignment) {
+	auto pointerType = reverseLookupType(lookupResultType(pointer));
+	if (!pointerType || pointerType->backingType != Type::BackingType::Pointer) {
+		throw std::runtime_error("load pointer type unavailable");
+	}
+	if (pointerType->targetType != resultTypeID) {
+		throw std::runtime_error("load pointee type mismatch");
+	}
 	auto result = reserveResultID();
 	auto tmp = beginInstruction(Opcode::Load, *_currentFunctionWriter);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(resultTypeID);
@@ -480,10 +495,22 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeLoad(ResultID resultType
 		_currentFunctionWriter->writeIntegerLE<uint32_t>(alignment);
 	}
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
 void Iridium::SPIRV::Builder::encodeStore(ResultID pointer, ResultID object, uint8_t alignment) {
+	auto pointerType = reverseLookupType(lookupResultType(pointer));
+	if (!pointerType || pointerType->backingType != Type::BackingType::Pointer) {
+		throw std::runtime_error("store pointer type unavailable");
+	}
+	auto objectType = lookupResultType(object);
+	if (objectType == ResultIDInvalid) {
+		throw std::runtime_error("store object type unavailable");
+	}
+	if (pointerType->targetType != objectType) {
+		throw std::runtime_error("store pointee type mismatch");
+	}
 	auto tmp = beginInstruction(Opcode::Store, *_currentFunctionWriter);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(pointer);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(object);
@@ -501,6 +528,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeConvertUToF(ResultID res
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(result);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(operand);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -511,6 +539,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeArithUnop(Opcode unop, R
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(result);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(operand);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -522,6 +551,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeArithBinop(Opcode binop,
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(operand1);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(operand2);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -536,6 +566,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeVectorShuffle(ResultID r
 		_currentFunctionWriter->writeIntegerLE<uint32_t>(component);
 	}
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -550,6 +581,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeCompositeInsert(ResultID
 		_currentFunctionWriter->writeIntegerLE<uint32_t>(index);
 	}
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -563,6 +595,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeCompositeExtract(ResultI
 		_currentFunctionWriter->writeIntegerLE<uint32_t>(index);
 	}
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -581,6 +614,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeConvertPtrToU(ResultID r
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(result);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(target);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -591,6 +625,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeConvertUToPtr(ResultID r
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(result);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(target);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -601,6 +636,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeBitcast(ResultID resultT
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(result);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(operand);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -612,6 +648,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeSampledImage(ResultID re
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(image);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(sampler);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -623,6 +660,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeImageSampleImplicitLod(R
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(sampledImage);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(coordinates);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -633,6 +671,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeFConvert(ResultID result
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(result);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(target);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -641,6 +680,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeInverseSqrt(ResultID res
 	auto tmp = beginGLSLInstruction(GLSLOpcode::InverseSqrt, *_currentFunctionWriter, resultTypeID, result);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(target);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -651,6 +691,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeFClamp(ResultID resultTy
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(min);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(max);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -661,6 +702,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeFMax(ResultID resultType
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(operand1);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(operand2);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -670,6 +712,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodePow(ResultID resultTypeI
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(base);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(exponent);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -681,6 +724,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeVectorExtractDynamic(Res
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(vector);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(index);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -693,6 +737,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeVectorInsertDynamic(Resu
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(component);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(index);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -744,6 +789,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodePhi(ResultID resultTypeI
 		_currentFunctionWriter->writeIntegerLE<uint32_t>(block);
 	}
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -759,6 +805,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeSqrt(ResultID resultType
 	auto tmp = beginGLSLInstruction(GLSLOpcode::Sqrt, *_currentFunctionWriter, resultTypeID, result);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(target);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
@@ -767,6 +814,7 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeTrunc(ResultID resultTyp
 	auto tmp = beginGLSLInstruction(GLSLOpcode::Trunc, *_currentFunctionWriter, resultTypeID, result);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(operand);
 	endInstruction(std::move(tmp));
+	setResultType(result, resultTypeID);
 	return result;
 };
 
