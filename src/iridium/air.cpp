@@ -434,6 +434,10 @@ static Iridium::SPIRV::ResultID llvmValueToResultID(Iridium::SPIRV::Builder& bui
 				} break;
 
 				default:
+					if (DynamicLLVM::LLVMGetConstOpcode(llvmValue) == LLVMIntToPtr) {
+						auto op = DynamicLLVM::LLVMGetOperand(llvmValue, 0);
+						fprintf(stderr, "DIAG inttoptr operand kind %d width %u value %lld addrspace %u\n", (int)DynamicLLVM::LLVMGetValueKind(op), DynamicLLVM::LLVMIsAConstantInt(op) ? DynamicLLVM::LLVMGetIntTypeWidth(DynamicLLVM::LLVMTypeOf(op)) : 0u, DynamicLLVM::LLVMIsAConstantInt(op) ? (long long)DynamicLLVM::LLVMConstIntGetSExtValue(op) : -1LL, DynamicLLVM::LLVMGetPointerAddressSpace(type));
+					}
 					throw ImpossibleResultID("unsupported LLVM value kind " + std::to_string((int)kind) + " constant opcode " + std::to_string((int)DynamicLLVM::LLVMGetConstOpcode(llvmValue)) + " type kind " + std::to_string((int)DynamicLLVM::LLVMGetTypeKind(type)));
 			}
 		} break;
