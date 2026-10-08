@@ -1609,7 +1609,7 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 							|| resultType->structureMembers.size() != 2
 							|| resultType->structureMembers[0].id != textureSampleType) {
 							{
-								fprintf(stderr, "DIAG sample call %s result llvm kind %d", name.c_str(), (int)DynamicLLVM::LLVMGetTypeKind(targetType));
+								fprintf(stderr, "DIAG sample call %.*s result llvm kind %d", (int)name.size(), name.data(), (int)DynamicLLVM::LLVMGetTypeKind(targetType));
 								if (resultType) { fprintf(stderr, " spirv backing %d members %zu", (int)resultType->backingType, resultType->structureMembers.size());
 									for (auto& mem : resultType->structureMembers) { auto mt = builder.reverseLookupType(mem.id); fprintf(stderr, " [backing %d scalar %zu count %zu]", mt ? (int)mt->backingType : -1, mt ? mt->scalarWidth : 0, mt ? mt->entryCount : 0); } }
 								fprintf(stderr, "\n");
