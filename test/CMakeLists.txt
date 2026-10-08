@@ -21,3 +21,5 @@ add_subdirectory(multisample-resolve)
 foreach(target indium-test-cube indium-test-cubemap indium-test-lighting indium-test-texturing)
 	target_compile_definitions(${target} PRIVATE GLM_ENABLE_EXPERIMENTAL)
 endforeach()
+
+add_subdirectory(texture-usage)
