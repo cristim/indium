@@ -703,6 +703,7 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 				if (!typeNameNode) {
 					throw ImpossibleResultID("air.buffer descriptor has no air.arg_type_name");
 				}
+				{ auto sv = llvmMDStringToStringView(typeNameNode); fprintf(stderr, "DIAG buffer arg_type_name=%.*s\n", (int)sv.size(), sv.data()); }
 				auto type = spirvTypeForAIRTypeName(builder, _module.get(), llvmMDStringToStringView(typeNameNode));
 				auto addrPtrTypeInst = SPIRV::Type(SPIRV::Type::PointerTag {}, SPIRV::StorageClass::PhysicalStorageBuffer, type, 8);
 				auto addrPtrType = builder.declareType(addrPtrTypeInst);
