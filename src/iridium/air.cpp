@@ -262,6 +262,46 @@ static std::optional<Iridium::SPIRV::Type> spirvScalarTypeForMetalBase(std::stri
 	return std::nullopt;
 }
 
+// air.convert.f.<to>.f.<from> converts between floating-point types of different widths,
+// where each type is a scalar (f16, f32, f64) or a vector of them (v4f16, ...)
+static bool isFloatWidthConversion(std::string_view name) {
+	constexpr std::string_view prefix = "air.convert.";
+	if (name.substr(0, prefix.size()) != prefix) {
+		return false;
+	}
+
+	std::string_view parts[4];
+	size_t count = 0;
+	std::string_view rest = name.substr(prefix.size());
+	while (count < 4) {
+		auto dot = rest.find('.');
+		parts[count++] = rest.substr(0, dot);
+		if (dot == std::string_view::npos) {
+			break;
+		}
+		rest.remove_prefix(dot + 1);
+	}
+
+	auto element = [](std::string_view type, std::string_view& scalar, std::string_view& vector) {
+		vector = {};
+		if (!type.empty() && type[0] == 'v') {
+			size_t digits = 1;
+			while (digits < type.size() && type[digits] >= '0' && type[digits] <= '9') {
+				++digits;
+			}
+			vector = type.substr(0, digits);
+			type.remove_prefix(digits);
+		}
+		scalar = type;
+		return scalar == "f16" || scalar == "f32" || scalar == "f64";
+	};
+
+	std::string_view toScalar, toVector, fromScalar, fromVector;
+	return count == 4 && parts[0] == "f" && parts[2] == "f"
+		&& element(parts[1], toScalar, toVector) && element(parts[3], fromScalar, fromVector)
+		&& toVector == fromVector && toScalar != fromScalar;
+}
+
 // A buffer argument's air.arg_type_name is a scalar, a vector, or the name of a
 // struct declared in the module ("Uniforms", "AAPLVertex"). Struct names are
 // resolved against the module, since the opaque pointer parameter no longer
@@ -1624,7 +1664,7 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 							}
 							resID = builder.encodeCompositeInsert(type, sampled, builder.declareNullValue(type), { 0 });
 						}
-					} else if (name == "air.convert.f.v4f32.f.v4f16" || name == "air.convert.f.v4f16.f.v4f32") {
+					} else if (isFloatWidthConversion(name)) {
 						auto arg = DynamicLLVM::LLVMGetOperand(inst, 0);
 
 						resID = builder.encodeFConvert(type, llvmValueToResultID(builder, arg));
