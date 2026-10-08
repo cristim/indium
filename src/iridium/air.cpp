@@ -1360,8 +1360,18 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 								case LLVMArrayTypeKind:
 								case LLVMVectorTypeKind: {
 									auto elementType = DynamicLLVM::LLVMGetElementType(layoutType);
-									auto elementSize = layout.size / layout.entryCount;
-									step = builder.encodeArithBinop(SPIRV::Opcode::IMul, uint64Type, indices[i - 1], builder.declareConstantScalar<uint64_t>(elementSize));
+									auto element = *builder.reverseLookupType(llvmTypeToSPIRVType(builder, elementType));
+									auto stride = DynamicLLVM::LLVMGetTypeKind(layoutType) == LLVMArrayTypeKind
+										? (element.size + element.alignment - 1) & ~(element.alignment - 1)
+										: element.size;
+									auto index = indices[i - 1];
+									auto indexWidth = DynamicLLVM::LLVMGetIntTypeWidth(DynamicLLVM::LLVMTypeOf(llindex));
+									if (indexWidth < 64) {
+										auto signed64Type = builder.declareType(SPIRV::Type(SPIRV::Type::IntegerTag {}, 64, true));
+										index = builder.encodeArithUnop(SPIRV::Opcode::SConvert, signed64Type, index);
+										builder.setResultType(index, signed64Type);
+									}
+									step = builder.encodeArithBinop(SPIRV::Opcode::IMul, uint64Type, index, builder.declareConstantScalar<uint64_t>(stride));
 									layoutType = elementType;
 								} break;
 
