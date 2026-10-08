@@ -570,7 +570,43 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeVectorShuffle(ResultID r
 	return result;
 };
 
+static Iridium::SPIRV::ResultID compositeMemberType(const Iridium::SPIRV::Builder& builder,
+	Iridium::SPIRV::ResultID compositeType, const std::vector<uint32_t>& indices) {
+	using Type = Iridium::SPIRV::Type;
+	if (indices.empty()) {
+		throw std::runtime_error("composite index missing");
+	}
+	for (auto index: indices) {
+		auto type = builder.reverseLookupType(compositeType);
+		if (!type) {
+			throw std::runtime_error("composite type unavailable");
+		}
+		if (type->backingType == Type::BackingType::Structure) {
+			if (index >= type->structureMembers.size()) {
+				throw std::runtime_error("composite index out of bounds");
+			}
+			compositeType = type->structureMembers[index].id;
+		} else if (type->backingType == Type::BackingType::Vector
+			|| type->backingType == Type::BackingType::Array
+			|| type->backingType == Type::BackingType::Matrix) {
+			if (index >= type->entryCount) {
+				throw std::runtime_error("composite index out of bounds");
+			}
+			compositeType = type->targetType;
+		} else {
+			throw std::runtime_error("unsupported composite type");
+		}
+	}
+	return compositeType;
+}
+
 Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeCompositeInsert(ResultID resultTypeID, ResultID modifiedPart, ResultID compositeToCopyAndModify, std::vector<uint32_t> indices) {
+	if (lookupResultType(compositeToCopyAndModify) != resultTypeID) {
+		throw std::runtime_error("composite input type mismatch");
+	}
+	if (lookupResultType(modifiedPart) != compositeMemberType(*this, resultTypeID, indices)) {
+		throw std::runtime_error("composite inserted member type mismatch");
+	}
 	auto result = reserveResultID();
 	auto tmp = beginInstruction(Opcode::CompositeInsert, *_currentFunctionWriter);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(resultTypeID);
@@ -586,6 +622,9 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeCompositeInsert(ResultID
 };
 
 Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeCompositeExtract(ResultID resultTypeID, ResultID composite, std::vector<uint32_t> indices) {
+	if (resultTypeID != compositeMemberType(*this, lookupResultType(composite), indices)) {
+		throw std::runtime_error("composite extracted member type mismatch");
+	}
 	auto result = reserveResultID();
 	auto tmp = beginInstruction(Opcode::CompositeExtract, *_currentFunctionWriter);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(resultTypeID);
