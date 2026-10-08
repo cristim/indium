@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdlib>
 #include <indium/library.private.hpp>
 #include <indium/device.private.hpp>
 #include <indium/sampler.hpp>
@@ -30,6 +32,12 @@ Indium::PrivateLibrary::PrivateLibrary(std::shared_ptr<PrivateDevice> device, co
 	createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
 	createInfo.codeSize = dataLength;
 	createInfo.pCode = reinterpret_cast<const uint32_t*>(data);
+
+	if (const char* dumpPath = getenv("INDIUM_DIAG_DUMP_SPIRV")) {
+		static int dumpIndex = 0;
+		std::string path = std::string(dumpPath) + "." + std::to_string(dumpIndex++) + ".spv";
+		if (FILE* f = fopen(path.c_str(), "wb")) { fwrite(data, 1, dataLength, f); fclose(f); }
+	}
 
 	if (DynamicVK::vkCreateShaderModule(_privateDevice->device(), &createInfo, nullptr, &_shaderModule) != VK_SUCCESS) {
 		// TODO
