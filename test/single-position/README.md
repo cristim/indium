@@ -12,11 +12,11 @@ for mode in single struct fragment ordinary; do
   /tmp/position-module "$mode" "/tmp/position-$mode.spv"
   spirv-val --target-env vulkan1.3 "/tmp/position-$mode.spv"
 done
-/tmp/position-module invalid-type /tmp/invalid.spv # must exit1
-/tmp/position-module invalid-stage /tmp/invalid.spv # must exit1
+/tmp/position-module invalid-type /tmp/invalid.spv # must exit 1
+/tmp/position-module invalid-stage /tmp/invalid.spv # must exit 1
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/asahi_icd.json /tmp/position-render /tmp/position-single.spv /tmp/position-fragment.spv
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/asahi_icd.json /tmp/position-render /tmp/position-struct.spv /tmp/position-fragment.spv
-VK_DRIVER_FILES=/usr/share/vulkan/icd.d/asahi_icd.json /tmp/position-render /tmp/position-ordinary.spv /tmp/position-fragment.spv # must exit1
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/asahi_icd.json /tmp/position-render /tmp/position-ordinary.spv /tmp/position-fragment.spv # must exit 1
 ```
 
 Select an appropriate native ICD on other systems. The renderer requires Vulkan1.3
@@ -25,3 +25,34 @@ pixels. Before the fix, single output validates but yields 0 red pixels/exit1; s
 60000 red pixels/exit0. After, both yield60000 red pixels/exit0 on Apple M1. Ordinary output was observed as 0 red pixels on M1; an unwritten Position has
 unspecified rendering. Float4 alone does not establish the Position semantic. Fragment output
 continues to produce the red color; malformed position declarations reject.
+
+## Explicit point size
+
+The authored `point` mode returns Position and a float `air.point_size` of 8.
+Apple's Render Command Encoder guide and `MTLPrimitiveType.point` documentation
+require `[[point_size]]`; missing point size is undefined. No default is supplied.
+The renderer's optional `point` argument uses one centered point, queries and
+enables `largePoints`, and expects exactly 64 red pixels in its native readback.
+
+```sh
+/tmp/position-module point /tmp/position-point.spv
+spirv-val --target-env vulkan1.3 /tmp/position-point.spv
+VK_DRIVER_FILES=/usr/share/vulkan/icd.d/asahi_icd.json /tmp/position-render /tmp/position-point.spv /tmp/position-fragment.spv point
+for mode in point-invalid-type point-invalid-stage point-duplicate point-conflict; do
+  /tmp/position-module "$mode" /tmp/invalid.spv # must exit 1
+done
+```
+
+Baseline on Apple M1: point module validates but native output is 1 red pixel,
+exit 1. Candidate: 64 red pixels, exit 0. Single and struct triangle controls remain
+60000 red pixels. Invalid integer/duplicate point-size metadata was accepted before
+and rejects after; invalid fragment stage is rejected explicitly rather than
+reaching unrelated translation failure. This does not establish the cause of any
+application point-size validation message or complete application rendering.
+
+The `air.point_size` metadata spelling is cross-checked against public source:
+3Shain/dxmt `src/airconv/air_signature.cpp` and DsoTsin/kaleido3d
+`src/Metal/source/converter/spirv_writer.cc` (both public GitHub projects).
+Contract provenance:
+https://developer.apple.com/library/archive/documentation/Miscellaneous/Conceptual/MetalProgrammingGuide/Render-Ctx/Render-Ctx.html
+https://developer.apple.com/documentation/metal/mtlprimitivetype/point
