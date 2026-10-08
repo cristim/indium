@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdlib>
 #include <indium/render-command-encoder.private.hpp>
 #include <indium/command-buffer.private.hpp>
 #include <indium/render-pass.hpp>
@@ -381,6 +383,7 @@ void Indium::PrivateRenderCommandEncoder::drawPrimitives(PrimitiveType primitive
 	if (!_privatePSO) {
 		return;
 	}
+	if (getenv("INDIUM_DIAG_DRAWS")) { fprintf(stderr, "DIAGDRAW pso=%p prim=%d count=%zu\n", (void*)_privatePSO.get(), (int)primitiveType, (size_t)vertexCount); }
 	auto buf = _privateCommandBuffer.lock();
 
 	// bind the pipeline with the right topology class for this primitive
@@ -531,6 +534,7 @@ void Indium::PrivateRenderCommandEncoder::drawIndexedPrimitives(PrimitiveType pr
 	if (!_privatePSO) {
 		return;
 	}
+	if (getenv("INDIUM_DIAG_DRAWS")) { fprintf(stderr, "DIAGDRAW pso=%p prim=%d count=%zu\n", (void*)_privatePSO.get(), (int)primitiveType, (size_t)indexCount); }
 	auto buf = _privateCommandBuffer.lock();
 
 	// bind the pipeline with the right topology class for this primitive

@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdlib>
 #include <indium/render-pipeline.private.hpp>
 #include <indium/device.private.hpp>
 #include <indium/library.private.hpp>
@@ -28,6 +30,10 @@ Indium::PrivateRenderPipelineState::PrivateRenderPipelineState(std::shared_ptr<P
 		throw std::runtime_error("Vertex function cannot be null in render pipeline");
 	}
 
+	if (getenv("INDIUM_DIAG_DRAWS")) {
+		auto& a = _colorAttachments.empty() ? RenderPipelineColorAttachmentDescriptor() : _colorAttachments[0];
+		fprintf(stderr, "DIAGPSO %p vs=%s fs=%s blend=%d src=%d dst=%d op=%d srcA=%d dstA=%d opA=%d mask=%d fmt=%d samples=%d\n", (void*)this, _vertexFunction->name().c_str(), _fragmentFunction ? _fragmentFunction->name().c_str() : "-", (int)a.blendingEnabled, (int)a.sourceRGBBlendFactor, (int)a.destinationRGBBlendFactor, (int)a.rgbBlendOperation, (int)a.sourceAlphaBlendFactor, (int)a.destinationAlphaBlendFactor, (int)a.alphaBlendOperation, (int)a.writeMask, (int)a.pixelFormat, (int)descriptor.rasterSampleCount);
+	}
 	_descriptorSetLayouts.processFunction(_vertexFunction, 0);
 	_descriptorSetLayouts.processFunction(_fragmentFunction, 1);
 };
