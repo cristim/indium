@@ -15,7 +15,8 @@ struct Buffer {
     void *mapped;
 };
 int main(int argc, char **argv) try {
-    if (argc != 3)
+    bool point = argc == 4 && std::strcmp(argv[3], "point") == 0;
+    if (argc != 3 && !point)
         return 2;
     auto readCode = [](const char *path) {
         std::ifstream input(path, std::ios::binary | std::ios::ate);
@@ -59,11 +60,14 @@ int main(int argc, char **argv) try {
     vkGetPhysicalDeviceFeatures2(physical, &available);
     if (!features12.bufferDeviceAddress)
         throw std::runtime_error("physical addressing capability unavailable");
+    if (point && !available.features.largePoints) throw std::runtime_error("largePoints unavailable");
+    VkPhysicalDeviceFeatures enabled{};
+    enabled.largePoints = point;
     features12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     features12.bufferDeviceAddress = VK_TRUE;
     float priority = 1;
     VkDeviceQueueCreateInfo queueInfo{.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, .queueFamilyIndex = family, .queueCount = 1, .pQueuePriorities = &priority};
-    VkDeviceCreateInfo deviceInfo{.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, .pNext = &features12, .queueCreateInfoCount = 1, .pQueueCreateInfos = &queueInfo};
+    VkDeviceCreateInfo deviceInfo{.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO, .pNext = &features12, .queueCreateInfoCount = 1, .pQueueCreateInfos = &queueInfo, .pEnabledFeatures = &enabled};
     VkDevice device;
     check(vkCreateDevice(physical, &deviceInfo, nullptr, &device));
     VkQueue queue;
@@ -97,6 +101,7 @@ int main(int argc, char **argv) try {
     };
     constexpr uint32_t width = 300, height = 200;
     float vertices[] = {-1, -1, 0, 1, 3, -1, 0, 1, -1, 3, 0, 1};
+    if (point) { vertices[0] = 0; vertices[1] = 0; }
     auto source = makeBuffer(sizeof(vertices), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     std::memcpy(source.mapped, vertices, sizeof(vertices));
     auto output = makeBuffer(width * height * 4, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
@@ -171,7 +176,7 @@ int main(int argc, char **argv) try {
     VkPipelineVertexInputStateCreateInfo vertexInput{.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO, .vertexBindingDescriptionCount = 1,
                                                      .pVertexBindingDescriptions = &inputBinding, .vertexAttributeDescriptionCount = 1,
                                                      .pVertexAttributeDescriptions = &attribute};
-    VkPipelineInputAssemblyStateCreateInfo assembly{.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
+    VkPipelineInputAssemblyStateCreateInfo assembly{.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO, .topology = point ? VK_PRIMITIVE_TOPOLOGY_POINT_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
     VkViewport viewport{0, 0, float(width), float(height), 0, 1};
     VkRect2D scissor{{0, 0}, {width, height}};
     VkPipelineViewportStateCreateInfo viewportState{
@@ -205,7 +210,7 @@ int main(int argc, char **argv) try {
     vkCmdBindPipeline(command, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
     VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(command, 0, 1, &source.buffer, &offset);
-    vkCmdDraw(command, 3, 1, 0, 0);
+    vkCmdDraw(command, point ? 1 : 3, 1, 0, 0);
     vkCmdEndRenderPass(command);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
@@ -221,8 +226,9 @@ int main(int argc, char **argv) try {
     auto pixels = static_cast<unsigned char *>(output.mapped);
     for (size_t i = 0; i < width * height; ++i)
         red += pixels[i * 4] == 255 && pixels[i * 4 + 1] == 0 && pixels[i * 4 + 2] == 0 && pixels[i * 4 + 3] == 255;
-    bool success = red == width * height;
-    std::printf("%s red pixels %zu expected %u\n", success ? "PASS" : "FAIL", red, width * height);
+    unsigned expected = point ? 64 : width * height;
+    bool success = red == expected;
+    std::printf("%s red pixels %zu expected %u\n", success ? "PASS" : "FAIL", red, expected);
     vkDestroyCommandPool(device, commandPool, nullptr);
     vkDestroyPipeline(device, pipeline, nullptr);
     vkDestroyShaderModule(device, vertex, nullptr);

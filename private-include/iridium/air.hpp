@@ -39,6 +39,7 @@ namespace Iridium {
 			std::string _name;
 			Type _type;
 			size_t _positionOutputIndex = SIZE_MAX;
+			size_t _pointSizeOutputIndex = SIZE_MAX;
 			size_t _vertexIDInputIndex = SIZE_MAX;
 			std::vector<SPIRV::ResultID> _outputValueIDs;
 			std::vector<SPIRV::ResultID> _parameterIDs;
