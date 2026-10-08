@@ -18,6 +18,7 @@ int main() {
             auto descriptor = Indium::TextureDescriptor::texture2DDescriptor(
                 Indium::PixelFormat::RGBA8Unorm, 16, 12, false);
             descriptor.resourceOptions = Indium::ResourceOptions::StorageModeShared;
+            descriptor.usage = Indium::TextureUsage::RenderTarget;
             auto result = device->newTexture(descriptor);
             std::vector<unsigned char> poison(16*12*4, 0xa5);
             result->replaceRegion(Indium::Region::make2D(0,0,16,12),0,poison.data(),16*4);
