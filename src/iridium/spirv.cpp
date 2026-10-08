@@ -544,6 +544,18 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeArithUnop(Opcode unop, R
 };
 
 Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeArithBinop(Opcode binop, ResultID resultTypeID, ResultID operand1, ResultID operand2) {
+	if (binop == Opcode::FAdd || binop == Opcode::FSub || binop == Opcode::FMul || binop == Opcode::FDiv) {
+		auto type = reverseLookupType(resultTypeID);
+		if (type && type->backingType == Type::BackingType::Vector) {
+			type = reverseLookupType(type->targetType);
+		}
+		if (!type || type->backingType != Type::BackingType::FloatingPoint) {
+			throw std::runtime_error("floating arithmetic result type unavailable");
+		}
+		if (lookupResultType(operand1) != resultTypeID || lookupResultType(operand2) != resultTypeID) {
+			throw std::runtime_error("floating arithmetic operand type mismatch");
+		}
+	}
 	auto result = reserveResultID();
 	auto tmp = beginInstruction(binop, *_currentFunctionWriter);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(resultTypeID);
@@ -704,6 +716,22 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeImageSampleImplicitLod(R
 };
 
 Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::encodeFConvert(ResultID resultTypeID, ResultID target) {
+	auto resultType = reverseLookupType(resultTypeID);
+	auto sourceType = reverseLookupType(lookupResultType(target));
+	if (!resultType || !sourceType || resultType->backingType != sourceType->backingType) {
+		throw std::runtime_error("floating conversion shape mismatch");
+	}
+	if (resultType->backingType == Type::BackingType::Vector) {
+		if (resultType->entryCount != sourceType->entryCount) {
+			throw std::runtime_error("floating conversion component count mismatch");
+		}
+		resultType = reverseLookupType(resultType->targetType);
+		sourceType = reverseLookupType(sourceType->targetType);
+	}
+	if (!resultType || !sourceType || resultType->backingType != Type::BackingType::FloatingPoint
+		|| sourceType->backingType != Type::BackingType::FloatingPoint || *resultType == *sourceType) {
+		throw std::runtime_error("floating conversion component type mismatch");
+	}
 	auto result = reserveResultID();
 	auto tmp = beginInstruction(Opcode::FConvert, *_currentFunctionWriter);
 	_currentFunctionWriter->writeIntegerLE<uint32_t>(resultTypeID);
