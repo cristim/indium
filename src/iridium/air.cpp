@@ -434,7 +434,7 @@ static Iridium::SPIRV::ResultID llvmValueToResultID(Iridium::SPIRV::Builder& bui
 				} break;
 
 				default:
-					throw ImpossibleResultID("unsupported LLVM value kind " + std::to_string((int)kind));
+					throw ImpossibleResultID("unsupported LLVM value kind " + std::to_string((int)kind) + " constant opcode " + std::to_string((int)DynamicLLVM::LLVMGetConstOpcode(llvmValue)) + " type kind " + std::to_string((int)DynamicLLVM::LLVMGetTypeKind(type)));
 			}
 		} break;
 
