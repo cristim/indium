@@ -1797,7 +1797,8 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 					}
 					auto resultType = builder.declareType(typeInst);
 
-					auto resID = builder.encodeBitcast(resultType, argID);
+					auto resID = typeInst.backingType == SPIRV::Type::BackingType::Pointer && resultType == origType
+						? argID : builder.encodeBitcast(resultType, argID);
 
 					builder.associateExistingResultID(resID, reinterpret_cast<uintptr_t>(inst));
 					builder.setResultType(resID, resultType);
