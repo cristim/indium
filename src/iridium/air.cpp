@@ -1,4 +1,5 @@
-#include <unordered_set>
+#include <optional>
+#include <unordered_map>
 #include <iridium/air.hpp>
 #include <iridium/bits.hpp>
 #include <iridium/spirv.hpp>
@@ -1247,9 +1248,9 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 		}
 	}
 
-	// declares the Vulkan-side sampler for one embedded (constant) sampler state; `key` is the LLVM value the shader refers to it by
-
-	auto declareEmbeddedSampler = [&](uint64_t val, uintptr_t key) {
+	// declares the Vulkan-side sampler for one embedded (constant) sampler state and returns its variable; when `key` is set, it is the
+	// LLVM value the shader refers to it by
+	auto declareEmbeddedSampler = [&](uint64_t val, std::optional<uintptr_t> key) {
 		// bit positions of each state component (excluding the end point):
 		//   S address mode = [0, 3]
 		//   T address mode = [3, 6]
@@ -1320,10 +1321,13 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 
 		_parameterIDs.push_back(var);
 
-		builder.associateExistingResultID(var, key);
+		if (key) {
+			builder.associateExistingResultID(var, *key);
+		}
 		builder.setResultType(var, samplerPtrType);
 
 		++internalBindingIndex;
+		return var;
 	};
 
 	// find global sampler variables
@@ -1350,7 +1354,8 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 
 	// a constant sampler can also be referenced directly as an integer-to-pointer constant expression holding the same
 	// packed state, rather than through a global variable. declare one sampler per distinct expression before the body is translated.
-	std::unordered_set<LLVMValueRef> declaredSamplerExpressions;
+	// the expression is shared by every function in the library, so each function keeps its own variables.
+	std::unordered_map<LLVMValueRef, SPIRV::ResultID> constantSamplers;
 	for (LLVMBasicBlockRef bb = DynamicLLVM::LLVMGetFirstBasicBlock(_function); bb != nullptr; bb = DynamicLLVM::LLVMGetNextBasicBlock(bb)) {
 		for (LLVMValueRef inst = DynamicLLVM::LLVMGetFirstInstruction(bb); inst != nullptr; inst = DynamicLLVM::LLVMGetNextInstruction(inst)) {
 			auto operandCount = DynamicLLVM::LLVMGetNumOperands(inst);
@@ -1359,7 +1364,7 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 				if (DynamicLLVM::LLVMGetValueKind(operand) != LLVMConstantExprValueKind
 					|| DynamicLLVM::LLVMGetConstOpcode(operand) != LLVMIntToPtr
 					|| DynamicLLVM::LLVMGetPointerAddressSpace(DynamicLLVM::LLVMTypeOf(operand)) != 2
-					|| !declaredSamplerExpressions.insert(operand).second)
+					|| constantSamplers.count(operand))
 				{
 					continue;
 				}
@@ -1367,7 +1372,7 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 				if (!DynamicLLVM::LLVMIsAConstantInt(packed) || DynamicLLVM::LLVMGetIntTypeWidth(DynamicLLVM::LLVMTypeOf(packed)) != 64) {
 					throw ImpossibleResultID("constant sampler expression does not hold a 64-bit constant");
 				}
-				declareEmbeddedSampler(DynamicLLVM::LLVMConstIntGetZExtValue(packed), reinterpret_cast<uintptr_t>(operand));
+				constantSamplers[operand] = declareEmbeddedSampler(DynamicLLVM::LLVMConstIntGetZExtValue(packed), std::nullopt);
 			}
 		}
 	}
@@ -1614,7 +1619,8 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 						auto someI32ArgTODO = DynamicLLVM::LLVMGetOperand(inst, 7);
 
 						auto textureArgID = llvmValueToResultID(builder, textureArg);
-						auto samplerArgID = llvmValueToResultID(builder, samplerArg);
+						auto constantSampler = constantSamplers.find(samplerArg);
+						auto samplerArgID = constantSampler != constantSamplers.end() ? constantSampler->second : llvmValueToResultID(builder, samplerArg);
 
 						auto texturePtrType = builder.lookupResultType(textureArgID);
 						auto textureType = builder.reverseLookupType(texturePtrType)->targetType;
