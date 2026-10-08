@@ -1605,23 +1605,25 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 						}
 
 						auto resultType = builder.reverseLookupType(type);
-						if (!resultType || resultType->backingType != SPIRV::Type::BackingType::Structure
-							|| resultType->structureMembers.size() != 2
-							|| resultType->structureMembers[0].id != textureSampleType) {
-							{
-								fprintf(stderr, "DIAG sample call %.*s result llvm kind %d", (int)name.size(), name.data(), (int)DynamicLLVM::LLVMGetTypeKind(targetType));
-								if (resultType) { fprintf(stderr, " spirv backing %d members %zu", (int)resultType->backingType, resultType->structureMembers.size());
-									for (auto& mem : resultType->structureMembers) { auto mt = builder.reverseLookupType(mem.id); fprintf(stderr, " [backing %d scalar %zu count %zu]", mt ? (int)mt->backingType : -1, mt ? mt->scalarWidth : 0, mt ? mt->entryCount : 0); } }
-								fprintf(stderr, "\n");
+						if (resultType && resultType->backingType == SPIRV::Type::BackingType::Vector) {
+							// the call returns the sampled vector itself rather than a {vector, status} pair
+							if (type != textureSampleType) {
+								throw ImpossibleResultID("unsupported texture sample result vector");
 							}
-							throw ImpossibleResultID("unsupported texture sample result structure");
+							resID = sampled;
+						} else {
+							if (!resultType || resultType->backingType != SPIRV::Type::BackingType::Structure
+								|| resultType->structureMembers.size() != 2
+								|| resultType->structureMembers[0].id != textureSampleType) {
+								throw ImpossibleResultID("unsupported texture sample result structure");
+							}
+							auto statusType = builder.reverseLookupType(resultType->structureMembers[1].id);
+							if (!statusType || (statusType->backingType != SPIRV::Type::BackingType::Integer
+								&& statusType->backingType != SPIRV::Type::BackingType::Boolean)) {
+								throw ImpossibleResultID("unsupported texture sample status type");
+							}
+							resID = builder.encodeCompositeInsert(type, sampled, builder.declareNullValue(type), { 0 });
 						}
-						auto statusType = builder.reverseLookupType(resultType->structureMembers[1].id);
-						if (!statusType || (statusType->backingType != SPIRV::Type::BackingType::Integer
-							&& statusType->backingType != SPIRV::Type::BackingType::Boolean)) {
-							throw ImpossibleResultID("unsupported texture sample status type");
-						}
-						resID = builder.encodeCompositeInsert(type, sampled, builder.declareNullValue(type), { 0 });
 					} else if (name == "air.convert.f.v4f32.f.v4f16" || name == "air.convert.f.v4f16.f.v4f32") {
 						auto arg = DynamicLLVM::LLVMGetOperand(inst, 0);
 
