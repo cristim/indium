@@ -482,6 +482,38 @@ uint64_t Indium::PrivateDevice::maxBufferLength() const {
 	});
 };
 
+bool Indium::PrivateDevice::hasUnifiedMemory() const {
+	bool hasDeviceLocalType = false;
+
+	for (uint32_t i = 0; i < _memoryProperties.memoryTypeCount; ++i) {
+		const auto flags = _memoryProperties.memoryTypes[i].propertyFlags;
+		if ((flags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) == 0) {
+			continue;
+		}
+		hasDeviceLocalType = true;
+		if ((flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) == 0) {
+			return false;
+		}
+	}
+
+	return hasDeviceLocalType;
+};
+
+uint64_t Indium::PrivateDevice::registryID() const {
+	VkPhysicalDeviceIDProperties idProps {};
+	idProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+	VkPhysicalDeviceProperties2 props {};
+	props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+	props.pNext = &idProps;
+	DynamicVK::vkGetPhysicalDeviceProperties2(_physicalDevice, &props);
+
+	uint64_t hash = 14695981039346656037ull;
+	for (uint8_t byte : idProps.deviceUUID) {
+		hash = (hash ^ byte) * 1099511628211ull;
+	}
+	return hash;
+};
+
 uint64_t Indium::PrivateDevice::recommendedMaxWorkingSetSize() const {
 	uint64_t deviceLocal = 0;
 	uint64_t all = 0;

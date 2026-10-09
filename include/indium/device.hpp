@@ -52,6 +52,28 @@ namespace Indium {
 		 */
 		virtual uint64_t maxBufferLength() const = 0;
 
+		/**
+		 * Whether the device shares all of its memory with the CPU.
+		 *
+		 * True when every memory type the device reports as device-local is also
+		 * host-visible, so no allocation the GPU uses at full speed is out of the
+		 * CPU's reach. A discrete GPU always offers a device-local type the host
+		 * cannot map, so it answers false even when a resizable BAR window
+		 * exposes part of VRAM to the host. A device that reports no device-local
+		 * memory type at all answers false, since nothing says it is shared.
+		 */
+		virtual bool hasUnifiedMemory() const = 0;
+
+		/**
+		 * A 64-bit identifier that is stable for a given physical device and
+		 * distinct between devices.
+		 *
+		 * It is the FNV-1a hash of VkPhysicalDeviceIDProperties::deviceUUID, which
+		 * Vulkan requires to be unique and constant for the device. It is not an
+		 * operating system registry entry ID: no Vulkan property carries one.
+		 */
+		virtual uint64_t registryID() const = 0;
+
 		virtual std::shared_ptr<CommandQueue> newCommandQueue() = 0;
 		virtual std::shared_ptr<RenderPipelineState> newRenderPipelineState(const RenderPipelineDescriptor& descriptor) = 0;
 		virtual std::shared_ptr<ComputePipelineState> newComputePipelineState(const ComputePipelineDescriptor& descriptor, PipelineOption options, std::shared_ptr<ComputePipelineReflection> reflection) = 0;
