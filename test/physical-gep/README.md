@@ -24,7 +24,8 @@ VK_DRIVER_FILES=/usr/share/vulkan/icd.d/asahi_icd.json "$OUT/readback" "$OUT/arr
 VK_DRIVER_FILES=/usr/share/vulkan/icd.d/asahi_icd.json "$OUT/readback" "$OUT/vec3.spv" 4 5 6
 # struct member offsets: shape, then the member offsets added after the first index
 for case in "struct-vec3 16" "nested-vec3 16 16" "struct-half3 8" "struct-int3 16" \
-            "struct-lead 16" "struct-vec4 16" "struct-vec2 8"; do
+            "struct-lead 16" "struct-vec4 16" "struct-vec2 8" \
+            "packed-char3 1" "packed-short3 2" "packed-half3 2" "packed-float2 4"; do
   set -- $case; shape=$1; shift
   "$OUT/physical-gep" $shape "$OUT/$shape.spv" >/dev/null || { echo "FAIL $shape translate"; continue; }
   got=$(spirv-dis "$OUT/$shape.spv" | grep -o 'OpIAdd %ulong %[a-z0-9_]* %ulong_[0-9]*' | grep -o '[0-9]*$' | paste -sd' ')
@@ -55,6 +56,12 @@ after the previous member's allocation size, as in LLVM's struct layout and Meta
 member occupies 16 bytes). With the unrounded size, `struct-vec3` and `struct-int3` put the second
 member at 12, `struct-half3` at 6 and `nested-vec3` at 16 + 12 = 28, again without any `spirv-val`
 error. `struct-lead`, `struct-vec4` and `struct-vec2` are controls whose offsets do not change.
+
+The `packed-*` shapes declare the input buffer as a `packed_` vector, whose alignment the MSL
+table fixes at the scalar's. The builder keeps the first declaration of a vector type, so the
+member offset of the vector inside the struct reflects the name-derived alignment: with the old
+formula `packed-char3` gets 4 (want 1), `packed-short3` and `packed-half3` 4 (want 2) and
+`packed-float2` 2 (want 4).
 
 `neg32` steps back one float from element 5 with an i32 index of -1. The index must be
 sign-extended to 64 bits before the byte multiply (`OpSConvert`); zero-extension would add

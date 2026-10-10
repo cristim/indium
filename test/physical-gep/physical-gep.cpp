@@ -20,6 +20,12 @@
 //     struct-lead  {float, float3}           member at 16 (control)
 //     struct-vec4  {float4, float}           member at 16 (control)
 //     struct-vec2  {float2, float}           member at 8 (control)
+// The packed shapes declare the input buffer as the packed type, and the MSL table fixes its
+// alignment at the scalar's:
+//     packed-char3  {char, packed_char3}     member at 1
+//     packed-short3 {short, packed_short3}   member at 2
+//     packed-half3  {half, packed_half3}     member at 2
+//     packed-float2 {char, packed_float2}    member at 4
 int main(int argc, char **argv) try {
     if (argc != 3 || !Iridium::DynamicLLVM::init())
         return 2;
@@ -31,6 +37,8 @@ int main(int argc, char **argv) try {
     auto f16 = LLVMHalfTypeInContext(c);
     auto i32 = LLVMInt32TypeInContext(c);
     auto i64 = LLVMInt64TypeInContext(c);
+    auto i8 = LLVMInt8TypeInContext(c);
+    auto i16 = LLVMInt16TypeInContext(c);
     auto vec2 = LLVMVectorType(f32, 2);
     auto vec3 = LLVMVectorType(f32, 3);
     auto vec4 = LLVMVectorType(f32, 4);
@@ -44,6 +52,7 @@ int main(int argc, char **argv) try {
         unsigned depth;
         LLVMTypeRef loaded;
         const char *loadedName;
+        const char *inputName = "float4x4";
     };
     std::map<std::string, StructShape> structShapes = {
         {"struct-vec3", {pair(vec3, f32), 1, f32, "float"}},
@@ -53,6 +62,10 @@ int main(int argc, char **argv) try {
         {"struct-lead", {pair(f32, vec3), 1, vec3, "float3"}},
         {"struct-vec4", {pair(vec4, f32), 1, f32, "float"}},
         {"struct-vec2", {pair(vec2, f32), 1, f32, "float"}},
+        {"packed-char3", {pair(i8, LLVMVectorType(i8, 3)), 1, LLVMVectorType(i8, 3), "char3", "packed_char3"}},
+        {"packed-short3", {pair(i16, LLVMVectorType(i16, 3)), 1, LLVMVectorType(i16, 3), "short3", "packed_short3"}},
+        {"packed-half3", {pair(f16, LLVMVectorType(f16, 3)), 1, LLVMVectorType(f16, 3), "half3", "packed_half3"}},
+        {"packed-float2", {pair(i8, vec2), 1, vec2, "float2", "packed_float2"}},
     };
     auto structShape = structShapes.find(shape);
     bool isStruct = structShape != structShapes.end();
@@ -95,7 +108,7 @@ int main(int argc, char **argv) try {
     LLVMBuildRetVoid(writer);
     auto str = [&](const char *s) { return LLVMMDStringInContext(c, s, std::strlen(s)); };
     auto n = [&](unsigned x) { return LLVMConstInt(i32, x, 0); };
-    LLVMValueRef in[] = {n(0), str("air.buffer"), str("air.location_index"), n(0), n(1), str("air.arg_type_name"), str("float4x4")};
+    LLVMValueRef in[] = {n(0), str("air.buffer"), str("air.location_index"), n(0), n(1), str("air.arg_type_name"), str(isStruct ? structShape->second.inputName : "float4x4")};
     LLVMValueRef out[] = {n(1), str("air.buffer"), str("air.location_index"), n(1), n(1), str("air.arg_type_name"), str(loadedName)};
     LLVMValueRef descriptors[] = {LLVMMDNodeInContext(c, in, 7), LLVMMDNodeInContext(c, out, 7)};
     LLVMValueRef root[] = {function, LLVMMDNodeInContext(c, nullptr, 0), LLVMMDNodeInContext(c, descriptors, 2)};

@@ -53,6 +53,7 @@ Iridium::AIR::Function::Function(Type type, const std::string& name, const void*
 #include <cctype>
 #include <optional>
 #include <string>
+#include <utility>
 
 // Thrown when AIR uses something the translation does not implement. The
 // message names the unsupported construct, so a failure identifies itself
@@ -310,6 +311,20 @@ static bool isFloatWidthConversion(std::string_view name) {
 		&& toVector == fromVector && toScalar != fromScalar;
 }
 
+// Alignment of packed_<scalar>N vectors, from the MSL specification's table of vector and
+// packed vector sizes and alignments: a packed vector aligns like its scalar.
+static size_t packedVectorAlignment(std::string_view base, std::string_view name) {
+	static constexpr std::pair<std::string_view, size_t> table[] = {
+		{"char", 1}, {"uchar", 1},
+		{"short", 2}, {"ushort", 2}, {"half", 2},
+		{"int", 4}, {"uint", 4}, {"float", 4},
+	};
+	for (const auto& [scalarName, alignment] : table) {
+		if (scalarName == base) return alignment;
+	}
+	throw std::runtime_error("Unsupported packed Metal vector type: " + std::string(name));
+}
+
 // A buffer argument's air.arg_type_name is a scalar, a vector, or the name of a
 // struct declared in the module ("Uniforms", "AAPLVertex"). Struct names are
 // resolved against the module, since the opaque pointer parameter no longer
@@ -338,11 +353,10 @@ static Iridium::SPIRV::ResultID spirvTypeForAIRTypeName(Iridium::SPIRV::Builder&
 			size_t stride = (size + alignment - 1) & ~(alignment - 1);
 			return builder.declareType(Type(Type::ArrayTag {}, column, count, stride * count, alignment));
 		}
-		// Ordinary vectors mirror the LLVMVectorTypeKind layout; preserve
-		// the existing packed-name calculation pending separate layout support.
-		size_t componentAlignment = name.substr(0, 7) == "packed_"
-			? std::max(scalar->size / 4, size_t(1)) : scalar->alignment;
-		size_t vectorAlignment = ((count == 3 || count == 4) ? 4 : 2) * componentAlignment;
+		// Ordinary vectors mirror the LLVMVectorTypeKind layout (3-vectors pad to 4).
+		size_t vectorAlignment = name.substr(0, 7) == "packed_"
+			? packedVectorAlignment(base, name)
+			: ((count == 3 || count == 4) ? 4 : 2) * scalar->alignment;
 
 		return builder.declareType(Type(Type::VectorTag {}, count, scalarID, scalar->size * count, vectorAlignment));
 	}
