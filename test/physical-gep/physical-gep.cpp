@@ -35,10 +35,14 @@ int main(int argc, char **argv) try {
     auto vec3 = LLVMVectorType(f32, 3);
     auto vec4 = LLVMVectorType(f32, 4);
     auto matrix = LLVMArrayType(vec4, 4);
+    auto i8 = LLVMInt8TypeInContext(c);
+    auto i16 = LLVMInt16TypeInContext(c);
     auto pair = [&](LLVMTypeRef first, LLVMTypeRef second) {
         LLVMTypeRef members[] = {first, second};
         return LLVMStructTypeInContext(c, members, 2, 0);
     };
+    LLVMTypeRef packedMembers[] = {f32, vec4, f32};
+    auto packedVec4 = LLVMStructTypeInContext(c, packedMembers, 3, 1);
     struct Shape {
         LLVMTypeRef source;
         std::vector<long long> indices;
@@ -61,6 +65,25 @@ int main(int argc, char **argv) try {
         {"struct-lead", {pair(f32, vec3), {0, 1}, vec3, "float3"}},
         {"struct-vec4", {pair(vec4, f32), {0, 1}, f32, "float"}},
         {"struct-vec2", {pair(vec2, f32), {0, 1}, f32, "float"}},
+        // a packed_T output name must not change the layout of the vector T
+        {"mixed-vec3", {vec3, {1}, vec3, "packed_float3"}},
+        {"mixed-half3-member", {pair(f16, LLVMVectorType(f16, 3)), {0, 1}, LLVMVectorType(f16, 3), "packed_half3"}},
+        {"mixed-short2-member", {pair(i16, LLVMVectorType(i16, 2)), {0, 1}, LLVMVectorType(i16, 2), "packed_short2"}},
+        {"packed2-member", {pair(f32, vec2), {0, 1}, vec2, "packed_float2"}},
+        {"packed2-member-int", {pair(i32, LLVMVectorType(i32, 2)), {0, 1}, LLVMVectorType(i32, 2), "packed_int2"}},
+        {"packed3-array", {LLVMArrayType(vec3, 2), {0, 1}, vec3, "packed_float3"}},
+        {"mixed-uchar3", {LLVMVectorType(i8, 3), {1}, LLVMVectorType(i8, 3), "packed_uchar3"}},
+        // controls: LLVM arrays and packed structs keep their LLVM layout
+        {"array-member", {pair(f32, LLVMArrayType(f32, 3)), {0, 1, 1}, f32, "float"}},
+        {"array-pair", {pair(LLVMArrayType(f32, 4), LLVMArrayType(f32, 2)), {0, 1, 1}, f32, "float"}},
+        {"packed-struct-vec4", {packedVec4, {0, 2}, f32, "float"}},
+        // vectors wider than 4 lanes are aligned to their power-of-two size
+        {"wide-member", {pair(f32, LLVMVectorType(f32, 8)), {0, 1, 0}, f32, "float"}},
+        {"wide-member-i8", {pair(i8, LLVMVectorType(i8, 16)), {0, 1, 0}, i8, "char"}},
+        // packed_float3 input addressed through a 3-lane vector is refused; other steps are not
+        {"guard-packed3", {vec3, {1}, vec3, "float3", "packed_float3"}},
+        {"guard-packed3-scalar", {f32, {4}, f32, "float", "packed_float3"}},
+        {"guard-packed3-zero", {vec3, {0, 1}, f32, "float", "packed_float3"}},
     };
     auto found = shapes.find(shapeName);
     if (found == shapes.end())

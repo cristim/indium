@@ -167,9 +167,7 @@ static Iridium::SPIRV::ResultID llvmTypeToSPIRVType(Iridium::SPIRV::Builder& bui
 
 		case LLVMVectorTypeKind: {
 			auto type = llvmTypeToSPIRVType(builder, DynamicLLVM::LLVMGetElementType(llvmType));
-			auto typeInst = *builder.reverseLookupType(type);
-			auto elmCount = DynamicLLVM::LLVMGetVectorSize(llvmType);
-			return builder.declareType(Type(Type::VectorTag {}, elmCount, type, typeInst.size * elmCount, ((elmCount == 3 || elmCount == 4) ? 4 : 2) * typeInst.alignment));
+			return builder.declareType(Type(Type::VectorTag {}, DynamicLLVM::LLVMGetVectorSize(llvmType), type));
 		} break;
 
 		case LLVMArrayTypeKind: {
@@ -332,19 +330,13 @@ static Iridium::SPIRV::ResultID spirvTypeForAIRTypeName(Iridium::SPIRV::Builder&
 		}
 
 		if (rows > 1) {
-			size_t alignment = (rows == 3 ? 4 : rows) * scalar->alignment;
-			size_t size = rows * scalar->size;
-			auto column = builder.declareType(Type(Type::VectorTag {}, rows, scalarID, size, alignment));
-			size_t stride = (size + alignment - 1) & ~(alignment - 1);
-			return builder.declareType(Type(Type::ArrayTag {}, column, count, stride * count, alignment));
+			auto column = builder.declareType(Type(Type::VectorTag {}, rows, scalarID));
+			auto columnInst = *builder.reverseLookupType(column);
+			return builder.declareType(Type(Type::ArrayTag {}, column, count, allocationSize(columnInst) * count, columnInst.alignment));
 		}
-		// Ordinary vectors mirror the LLVMVectorTypeKind layout; preserve
-		// the existing packed-name calculation pending separate layout support.
-		size_t componentAlignment = name.substr(0, 7) == "packed_"
-			? std::max(scalar->size / 4, size_t(1)) : scalar->alignment;
-		size_t vectorAlignment = ((count == 3 || count == 4) ? 4 : 2) * componentAlignment;
-
-		return builder.declareType(Type(Type::VectorTag {}, count, scalarID, scalar->size * count, vectorAlignment));
+		// packed_T names the same vector as T: the buffer's layout comes from the
+		// LLVM types its accesses use (see the packed_T3 guard in analyze).
+		return builder.declareType(Type(Type::VectorTag {}, count, scalarID));
 	}
 
 	std::string owned(name);
@@ -664,9 +656,9 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 	auto ptrIntType = builder.declareType(SPIRV::Type(SPIRV::Type::PointerTag {}, SPIRV::StorageClass::Input, intType, 8));
 	auto floatTypeInst = SPIRV::Type(SPIRV::Type::FloatTag {}, 32);
 	auto floatType = builder.declareType(floatTypeInst);
-	auto vec4Type = builder.declareType(SPIRV::Type(SPIRV::Type::VectorTag {}, 4, floatType, floatTypeInst.size * 4, 16));
+	auto vec4Type = builder.declareType(SPIRV::Type(SPIRV::Type::VectorTag {}, 4, floatType));
 	auto u32Type = builder.declareType(SPIRV::Type(SPIRV::Type::IntegerTag {}, 32, false));
-	auto uvec3Type = builder.declareType(SPIRV::Type(SPIRV::Type::VectorTag {}, 3, u32Type, 16, 16));
+	auto uvec3Type = builder.declareType(SPIRV::Type(SPIRV::Type::VectorTag {}, 3, u32Type));
 
 	SPIRV::ResultID perVertexVar = SPIRV::ResultIDInvalid;
 	SPIRV::ResultID vertexIndexVar = SPIRV::ResultIDInvalid;
@@ -921,7 +913,16 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 				if (!typeNameNode) {
 					throw ImpossibleResultID("air.buffer descriptor has no air.arg_type_name");
 				}
-				auto type = spirvTypeForAIRTypeName(builder, _module.get(), llvmMDStringToStringView(typeNameNode));
+				auto typeName = llvmMDStringToStringView(typeNameNode);
+				auto type = spirvTypeForAIRTypeName(builder, _module.get(), typeName);
+				std::string_view base;
+				size_t count = 0;
+				if (typeName.substr(0, 7) == "packed_" && splitMetalTypeName(typeName, base, count) && count == 3) {
+					if (auto scalar = spirvScalarTypeForMetalBase(base)) {
+						_packed3Buffers.emplace(DynamicLLVM::LLVMGetParam(_function, i), "argument " + std::to_string(i) + " declared " +
+							std::string(typeName) + " (" + std::to_string(3 * scalar->size) + "-byte elements)");
+					}
+				}
 				auto addrPtrTypeInst = SPIRV::Type(SPIRV::Type::PointerTag {}, SPIRV::StorageClass::PhysicalStorageBuffer, type, 8);
 				auto addrPtrType = builder.declareType(addrPtrTypeInst);
 				bufferMembers.push_back(SPIRV::Type::Member { addrPtrType, 8 * bufferIndex, {} });
@@ -1092,7 +1093,7 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 				resultType = u32Type;
 			} else if (typeInst.entryCount == 2) {
 				// extract the X and Y components
-				auto uvec2Type = builder.declareType(SPIRV::Type(SPIRV::Type::VectorTag {}, 2, u32Type, 8, 8));
+				auto uvec2Type = builder.declareType(SPIRV::Type(SPIRV::Type::VectorTag {}, 2, u32Type));
 				target = builder.encodeVectorShuffle(uvec2Type, load, load, { 0, 1 });
 				resultType = uvec2Type;
 			}
@@ -1509,6 +1510,20 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 				//       (since i *think* that's the same addressing mode used by Metal code)
 
 				case LLVMGetElementPtr: {
+					// Metal declares packed_T3 elements as 3 * sizeof(T) bytes, while a step through any
+					// 3-lane vector covers its allocation size. Which one such a GEP means is unknown (it
+					// is also what reinterpreting packed_float3* as float3* produces), so refuse to guess.
+					auto packed = _packed3Buffers.find(DynamicLLVM::LLVMGetOperand(inst, 0));
+					auto sourceType = DynamicLLVM::LLVMGetGEPSourceElementType(inst);
+					auto first = DynamicLLVM::LLVMGetOperand(inst, 1);
+					if (packed != _packed3Buffers.end() &&
+						DynamicLLVM::LLVMGetTypeKind(sourceType) == LLVMVectorTypeKind &&
+						DynamicLLVM::LLVMGetVectorSize(sourceType) == 3 &&
+						!(DynamicLLVM::LLVMIsAConstantInt(first) && DynamicLLVM::LLVMConstIntGetZExtValue(first) == 0)) {
+						auto vector = *builder.reverseLookupType(llvmTypeToSPIRVType(builder, sourceType));
+						throw ImpossibleResultID(packed->second + " is indexed through a 3-lane vector (" + std::to_string(allocationSize(vector)) +
+							"-byte stride); refusing to guess which layout is meant, please report this module");
+					}
 					llvmGEPToResultID(builder, inst);
 				} break;
 
@@ -1659,12 +1674,12 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 
 						// WORKAROUND: as explained before, we use 32-bit floats in place of 16-bit floats for image sampling.
 						auto textureSampleComponentType = builder.declareType(SPIRV::Type(SPIRV::Type::FloatTag {}, 32));
-						auto textureSampleType = builder.declareType(SPIRV::Type(SPIRV::Type::VectorTag {}, 4, textureSampleComponentType, 16, 8));
+						auto textureSampleType = builder.declareType(SPIRV::Type(SPIRV::Type::VectorTag {}, 4, textureSampleComponentType));
 						auto sampled = builder.encodeImageSampleImplicitLod(textureSampleType, sampledImage, llvmValueToResultID(builder, textureCoordArg));
 
 						if (name == "air.sample_texture_2d.v4f16" || name == "air.sample_texture_cube.v4f16") {
 							auto convertedComponentType = builder.declareType(SPIRV::Type(SPIRV::Type::FloatTag {}, 16));
-							auto convertedType = builder.declareType(SPIRV::Type(SPIRV::Type::VectorTag {}, 4, convertedComponentType, 8, 8));
+							auto convertedType = builder.declareType(SPIRV::Type(SPIRV::Type::VectorTag {}, 4, convertedComponentType));
 							sampled = builder.encodeFConvert(convertedType, sampled);
 							textureSampleType = convertedType;
 						}

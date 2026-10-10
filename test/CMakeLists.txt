@@ -43,3 +43,5 @@ add_test(NAME physical-gep
 	COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/physical-gep/check.sh" $<TARGET_FILE:indium-test-physical-gep> "${CMAKE_CURRENT_BINARY_DIR}/physical-gep-out")
 add_iridium_check(indium-test-vector-types vector-layout/vector-types.cpp)
 add_test(NAME vector-types COMMAND indium-test-vector-types)
+# built so a Type constructor change cannot silently break it; its spirv-val step is manual
+add_iridium_check(indium-test-numeric-constants numeric-constants/numeric-constants.cpp)
