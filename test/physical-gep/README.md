@@ -11,7 +11,9 @@ constants the GEP must use, computed by LLVM-C (`LLVMABISizeOfType`, `LLVMOffset
 under that datalayout); `check.sh` compares them with the `OpIMul`/`OpIAdd` constants in the
 disassembly, runs `spirv-val` on the 32-bit rows and fails on any mismatch. Load alignment is
 the loaded type's ABI alignment capped by the largest power of two dividing the byte offset.
-With `-DENABLE_TESTS=ON`, `ctest -R physical-gep` builds and runs it. By hand, from the
+With `-DENABLE_TESTS=ON` (which then requires `spirv-dis` and `spirv-val` from SPIRV-Tools
+at configure time), build `indium-test-physical-gep` and run `ctest -R physical-gep` from the
+build directory. By hand, from the
 repository root (`$OUT` is a scratch directory):
 
 ```sh

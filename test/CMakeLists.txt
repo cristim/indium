@@ -25,8 +25,8 @@ endforeach()
 add_subdirectory(texture-usage)
 
 # Standalone translator checks: each includes src/iridium/air.cpp and authors its input
-# through LLVM's C API, so it links libLLVM directly.
-enable_testing()
+# through LLVM's C API, so it links libLLVM directly. physical-gep compares disassembly and
+# validates modules, so ENABLE_TESTS requires SPIRV-Tools rather than skipping that check.
 find_program(SPIRV_DIS spirv-dis REQUIRED)
 find_program(SPIRV_VAL spirv-val REQUIRED)
 get_filename_component(INDIUM_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
