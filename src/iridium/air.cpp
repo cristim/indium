@@ -1515,8 +1515,8 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 					// is also what reinterpreting packed_float3* as float3* produces), so refuse to guess.
 					auto packed = _packed3Buffers.find(DynamicLLVM::LLVMGetOperand(inst, 0));
 					auto sourceType = DynamicLLVM::LLVMGetGEPSourceElementType(inst);
-					auto first = DynamicLLVM::LLVMGetOperand(inst, 1);
-					if (packed != _packed3Buffers.end() &&
+					auto first = DynamicLLVM::LLVMGetNumOperands(inst) > 1 ? DynamicLLVM::LLVMGetOperand(inst, 1) : nullptr;
+					if (packed != _packed3Buffers.end() && first &&
 						DynamicLLVM::LLVMGetTypeKind(sourceType) == LLVMVectorTypeKind &&
 						DynamicLLVM::LLVMGetVectorSize(sourceType) == 3 &&
 						!(DynamicLLVM::LLVMIsAConstantInt(first) && DynamicLLVM::LLVMConstIntGetZExtValue(first) == 0)) {
