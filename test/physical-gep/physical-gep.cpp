@@ -50,6 +50,7 @@ int main(int argc, char **argv) try {
         const char *outName;
         const char *inName = "float4x4";
         LLVMTypeRef stepIndex = nullptr; // array/vector index type, i64 when null
+        bool dynamicFirst = false;       // first index loaded from argument 1, not a constant
     };
     std::map<std::string, Shape> shapes = {
         {"vector", {vec4, {1}, vec4, "float4"}},
@@ -84,6 +85,8 @@ int main(int argc, char **argv) try {
         {"guard-packed3", {vec3, {1}, vec3, "float3", "packed_float3"}},
         {"guard-packed3-scalar", {f32, {4}, f32, "float", "packed_float3"}},
         {"guard-packed3-zero", {vec3, {0, 1}, f32, "float", "packed_float3"}},
+        {"guard-packed3-dynamic", {vec3, {1}, vec3, "float3", "packed_float3", nullptr, true}},
+        {"guard-packed-half3", {LLVMVectorType(f16, 3), {1}, LLVMVectorType(f16, 3), "half3", "packed_half3"}},
     };
     auto found = shapes.find(shapeName);
     if (found == shapes.end())
@@ -93,7 +96,12 @@ int main(int argc, char **argv) try {
     auto function = LLVMAddFunction(m, "authoredKernel", LLVMFunctionType(LLVMVoidTypeInContext(c), params, 2, 0));
     auto writer = LLVMCreateBuilderInContext(c);
     LLVMPositionBuilderAtEnd(writer, LLVMAppendBasicBlockInContext(c, function, "entry"));
-    std::vector<LLVMValueRef> indices = {LLVMConstInt(i64, shape.indices[0], 1)};
+    LLVMValueRef firstIndex = LLVMConstInt(i64, shape.indices[0], 1);
+    if (shape.dynamicFirst) {
+        firstIndex = LLVMBuildLoad2(writer, i64, LLVMGetParam(function, 1), "index");
+        LLVMSetAlignment(firstIndex, 8);
+    }
+    std::vector<LLVMValueRef> indices = {firstIndex};
     std::vector<unsigned long long> expected = {LLVMABISizeOfType(td, shape.source)};
     unsigned long long offset = shape.indices[0] * expected[0];
     auto level = shape.source;

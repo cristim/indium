@@ -88,6 +88,8 @@ packed-struct layout and say nothing about how a compiler encodes Metal packed t
 `guard-packed3` declares argument 0 `packed_float3` and indexes it through `<3 x float>` with
 a non-zero first index. Metal declares 12-byte elements, the vector steps 16, and nothing in
 the tree says which an AIR producer means (a cast of `packed_float3*` to `float3*` legitimately
-produces the 16-byte form), so translation fails naming the argument. `guard-packed3-scalar`
+produces the 16-byte form), so translation fails naming the argument. `guard-packed3-dynamic`
+(first index loaded at run time) and `guard-packed-half3` (`<3 x half>` over `packed_half3`)
+must be refused the same way. `guard-packed3-scalar`
 (float steps) and `guard-packed3-zero` (first index 0) are the accesses the guard must let
 through.

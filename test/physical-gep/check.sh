@@ -93,6 +93,8 @@ check C wide-member-i8
 check R guard-packed3-scalar
 check R guard-packed3-zero
 refused guard-packed3 'argument 0 declared packed_float3 (12-byte elements) is indexed through a 3-lane vector (16-byte stride)'
+refused guard-packed3-dynamic 'argument 0 declared packed_float3 (12-byte elements) is indexed through a 3-lane vector (16-byte stride)'
+refused guard-packed-half3 'argument 0 declared packed_half3 (6-byte elements) is indexed through a 3-lane vector (8-byte stride)'
 differs vec3 12
 differs mixed-vec3 12
 
