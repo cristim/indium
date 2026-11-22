@@ -609,6 +609,7 @@ namespace Iridium {
 			ResultID _currentResultID = 1;
 			std::vector<EntryPoint> _entryPoints;
 			std::unordered_map<uintptr_t, ResultID> _associatedIDs;
+			std::unordered_map<uintptr_t, ResultID> _resourceIDs;
 			std::unordered_map<ResultID, std::unordered_set<Decoration>> _decorations;
 			std::unordered_map<ResultID, GlobalVariable> _globalVariables;
 			AddressingModel _addressingModel;
@@ -671,6 +672,8 @@ namespace Iridium {
 			ResultID associateResultID(uintptr_t association);
 			void associateExistingResultID(ResultID id, uintptr_t association);
 			ResultID lookupResultID(uintptr_t association) const;
+			void associateResourceResultID(ResultID id, uintptr_t association);
+			ResultID lookupResourceResultID(uintptr_t association) const;
 
 			void addEntryPoint(const EntryPoint& entryPoint);
 			ResultID addGlobalVariable(ResultID typeID, StorageClass storageClass);

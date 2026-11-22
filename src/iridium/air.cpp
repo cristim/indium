@@ -383,11 +383,33 @@ static Iridium::SPIRV::ResultID llvmValueToResultID(Iridium::SPIRV::Builder& bui
 		} break;
 
 		case LLVMConstantExprValueKind: {
-			switch (DynamicLLVM::LLVMGetConstOpcode(llvmValue)) {
+			auto opcode = DynamicLLVM::LLVMGetConstOpcode(llvmValue);
+			switch (opcode) {
+				case LLVMAddrSpaceCast:
+				case LLVMIntToPtr:
 				case LLVMBitCast: {
 					auto target = DynamicLLVM::LLVMGetOperand(llvmValue, 0);
-					auto targetID = llvmValueToResultID(builder, target);
+					unsigned roundtripWidth = 0;
+					auto targetID = ResultIDInvalid;
+					if (opcode == LLVMIntToPtr) {
+						roundtripWidth = DynamicLLVM::LLVMGetIntTypeWidth(DynamicLLVM::LLVMTypeOf(target));
+						if (DynamicLLVM::LLVMGetValueKind(target) == LLVMConstantIntValueKind) {
+							targetID = builder.lookupResourceResultID(reinterpret_cast<uintptr_t>(target));
+							if (targetID == ResultIDInvalid) {
+								throw ImpossibleResultID("constant pointer has no resource binding");
+							}
+						} else if (DynamicLLVM::LLVMGetValueKind(target) == LLVMConstantExprValueKind &&
+							DynamicLLVM::LLVMGetConstOpcode(target) == LLVMPtrToInt) {
+							target = DynamicLLVM::LLVMGetOperand(target, 0);
+						} else {
+							throw ImpossibleResultID("constant pointer has no resource binding");
+						}
+					}
+					if (targetID == ResultIDInvalid) targetID = llvmValueToResultID(builder, target);
 					auto targetType = builder.lookupResultType(targetID);
+					if (targetType == ResultIDInvalid) {
+						throw ImpossibleResultID("constant cast operand has no recorded type");
+					}
 					auto targetTypeInst = *builder.reverseLookupType(targetType);
 
 #if 1
@@ -395,6 +417,9 @@ static Iridium::SPIRV::ResultID llvmValueToResultID(Iridium::SPIRV::Builder& bui
 						auto targetElmTypeInst = *builder.reverseLookupType(targetTypeInst.targetType);
 
 						if (targetElmTypeInst.backingType == Type::BackingType::Sampler) {
+							if (roundtripWidth && roundtripWidth != targetTypeInst.size * 8) {
+								throw ImpossibleResultID("constant pointer roundtrip truncates the resource binding");
+							}
 							// HACK: don't bitcast sampler pointers. while this should be perfectly legal SPIR-V (and should be allowed in the Vulkan environment),
 							//       some vendors (e.g. AMD) don't handle this properly and it can cause segfaults. we don't really need to do anything weird with it anyways
 							//       (i'm 95% sure Metal bitcode doesn't do any pointer shenanigans with samplers), so just keep the original pointer.
@@ -403,6 +428,9 @@ static Iridium::SPIRV::ResultID llvmValueToResultID(Iridium::SPIRV::Builder& bui
 					}
 #endif
 
+					if (opcode != LLVMBitCast) {
+						throw ImpossibleResultID("constant address-space cast requires an opaque sampler binding");
+					}
 					return builder.encodeBitcast(llvmTypeToSPIRVType(builder, type), targetID);
 				} break;
 
@@ -1126,6 +1154,7 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 			_parameterIDs.push_back(var);
 
 			builder.associateExistingResultID(var, reinterpret_cast<uintptr_t>(suboperands[1]));
+			builder.associateResourceResultID(var, reinterpret_cast<uintptr_t>(init));
 			builder.setResultType(var, samplerPtrType);
 
 			++internalBindingIndex;

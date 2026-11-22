@@ -220,6 +220,15 @@ Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::lookupResultID(uintptr_t assoc
 	return it->second;
 };
 
+void Iridium::SPIRV::Builder::associateResourceResultID(ResultID id, uintptr_t association) {
+	_resourceIDs.try_emplace(association, id);
+};
+
+Iridium::SPIRV::ResultID Iridium::SPIRV::Builder::lookupResourceResultID(uintptr_t association) const {
+	auto it = _resourceIDs.find(association);
+	return it == _resourceIDs.end() ? ResultIDInvalid : it->second;
+};
+
 void Iridium::SPIRV::Builder::addEntryPoint(const EntryPoint& entryPoint) {
 	_entryPoints.push_back(entryPoint);
 };
