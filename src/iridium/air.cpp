@@ -4,6 +4,7 @@
 #include <iridium/dynamic-llvm.hpp>
 
 #include <llvm-c/BitReader.h>
+#include <algorithm>
 
 namespace DynamicLLVM = Iridium::DynamicLLVM;
 
@@ -451,23 +452,6 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 			{},
 		});
 
-		// declare the GLSL PerVertex structure
-		auto perVertexStructType = builder.declareType(SPIRV::Type(SPIRV::Type::StructureTag {}, {
-			SPIRV::Type::Member {
-				vec4Type,
-				0,
-				{
-					SPIRV::Decoration { SPIRV::DecorationType::Builtin, { static_cast<uint32_t>(SPIRV::BuiltinID::Position) } },
-				}
-			},
-			// TODO: declare the rest of the structure
-		}, floatTypeInst.size * 4, floatTypeInst.alignment));
-		auto perVertexStructPtrType = builder.declareType(SPIRV::Type(SPIRV::Type::PointerTag {}, SPIRV::StorageClass::Output, perVertexStructType, 8));
-		perVertexVar = builder.addGlobalVariable(perVertexStructPtrType, SPIRV::StorageClass::Output);
-
-		builder.addDecoration(perVertexStructType, SPIRV::Decoration { SPIRV::DecorationType::Block });
-
-		builder.referenceGlobalVariable(perVertexVar);
 
 		// declare the GLSL VertexIndex input variable
 		vertexIndexVar = builder.addGlobalVariable(ptrIntType, SPIRV::StorageClass::Input);
@@ -588,27 +572,52 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 	std::vector<LLVMValueRef> returnValueOperands(DynamicLLVM::LLVMGetMDNodeNumOperands(rootInfoOperands[1]));
 	DynamicLLVM::LLVMGetMDNodeOperands(rootInfoOperands[1], returnValueOperands.data());
 
+	auto hasOutputAttribute = [](LLVMValueRef descriptor, std::string_view attribute) {
+		std::vector<LLVMValueRef> info(DynamicLLVM::LLVMGetMDNodeNumOperands(descriptor));
+		DynamicLLVM::LLVMGetMDNodeOperands(descriptor, info.data());
+		return std::any_of(info.begin(), info.end(), [&](LLVMValueRef value) {
+			return DynamicLLVM::LLVMIsAMDString(value) && llvmMDStringToStringView(value) == attribute;
+		});
+	};
+
+	if (funcInfo.type == FunctionType::Vertex) {
+		std::vector<SPIRV::Type::Member> members {
+			SPIRV::Type::Member { vec4Type, 0, { SPIRV::Decoration { SPIRV::DecorationType::Builtin, { static_cast<uint32_t>(SPIRV::BuiltinID::Position) } } } }
+		};
+		bool hasPointSize = std::any_of(returnValueOperands.begin(), returnValueOperands.end(), [&](LLVMValueRef descriptor) {
+			return hasOutputAttribute(descriptor, "air.point_size");
+		});
+		if (hasPointSize) {
+			members.push_back(SPIRV::Type::Member { floatType, floatTypeInst.size * 4, { SPIRV::Decoration { SPIRV::DecorationType::Builtin, { static_cast<uint32_t>(SPIRV::BuiltinID::PointSize) } } } });
+		}
+		auto perVertexStructType = builder.declareType(SPIRV::Type(SPIRV::Type::StructureTag {}, members, floatTypeInst.size * (hasPointSize ? 5 : 4), floatTypeInst.alignment));
+		auto perVertexStructPtrType = builder.declareType(SPIRV::Type(SPIRV::Type::PointerTag {}, SPIRV::StorageClass::Output, perVertexStructType, 8));
+		perVertexVar = builder.addGlobalVariable(perVertexStructPtrType, SPIRV::StorageClass::Output);
+
+		builder.addDecoration(perVertexStructType, SPIRV::Decoration { SPIRV::DecorationType::Block });
+
+		builder.referenceGlobalVariable(perVertexVar);
+	}
+
 	if (DynamicLLVM::LLVMGetTypeKind(funcRetType) == LLVMStructTypeKind) {
 		// analyze return value and mark special values (like the position)
 		uint32_t location = 0;
 		for (size_t i = 0; i < returnValueOperands.size(); ++i) {
 			auto& returnValueOperand = returnValueOperands[i];
 
-			std::vector<LLVMValueRef> returnValueMemberInfo(DynamicLLVM::LLVMGetMDNodeNumOperands(returnValueOperand));
-			DynamicLLVM::LLVMGetMDNodeOperands(returnValueOperand, returnValueMemberInfo.data());
-
-			bool isSpecial = false;
-
-			for (auto& memberInfo: returnValueMemberInfo) {
-				auto str = llvmMDStringToStringView(memberInfo);
-
-				if (str == "air.position") {
-					// this is the special position return value
-					_positionOutputIndex = i;
-					isSpecial = true;
-					_outputValueIDs.push_back(SPIRV::ResultIDInvalid);
-					break;
-				}
+			bool position = hasOutputAttribute(returnValueOperand, "air.position");
+			bool pointSize = hasOutputAttribute(returnValueOperand, "air.point_size");
+			if (pointSize) {
+				if (position) throw ImpossibleResultID("conflicting vertex output attributes");
+				auto type = llvmTypeToSPIRVType(builder, DynamicLLVM::LLVMStructGetTypeAtIndex(funcRetType, i));
+				if (funcInfo.type != FunctionType::Vertex || type != floatType || _pointSizeOutputIndex != SIZE_MAX)
+					throw ImpossibleResultID("unsupported point size output");
+				_pointSizeOutputIndex = i;
+			}
+			bool isSpecial = position || pointSize;
+			if (isSpecial) {
+				if (position) _positionOutputIndex = i;
+				_outputValueIDs.push_back(SPIRV::ResultIDInvalid);
 			}
 
 			if (!isSpecial) {
@@ -622,7 +631,8 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 			}
 		}
 	} else if (DynamicLLVM::LLVMGetTypeKind(funcRetType) != LLVMVoidTypeKind) {
-		// TODO: handle case of returning a special variable (like air.position) with a single return value
+		if (!returnValueOperands.empty() && hasOutputAttribute(returnValueOperands[0], "air.point_size"))
+			throw ImpossibleResultID("unsupported single point size output");
 
 		auto type = llvmTypeToSPIRVType(builder, funcRetType);
 		auto ptrType = builder.declareType(SPIRV::Type(SPIRV::Type::PointerTag {}, SPIRV::StorageClass::Output, type, 8));
@@ -1613,9 +1623,9 @@ void Iridium::AIR::Function::analyze(SPIRV::Builder& builder, OutputInfo& output
 								auto type = llvmTypeToSPIRVType(builder, memberType);
 								auto elm = builder.encodeCompositeExtract(type, val, { static_cast<uint32_t>(i) });
 
-								if (i == _positionOutputIndex) {
+								if (i == _positionOutputIndex || i == _pointSizeOutputIndex) {
 									auto ptrType = builder.declareType(SPIRV::Type(SPIRV::Type::PointerTag {}, SPIRV::StorageClass::Output, type, 8));
-									auto ptr = builder.encodeAccessChain(ptrType, perVertexVar, { builder.declareConstantScalar<int32_t>(0) });
+									auto ptr = builder.encodeAccessChain(ptrType, perVertexVar, { builder.declareConstantScalar<int32_t>(i == _positionOutputIndex ? 0 : 1) });
 									builder.encodeStore(ptr, elm);
 								} else {
 									builder.encodeStore(_outputValueIDs[i], elm);
